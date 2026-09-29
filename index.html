@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quản lý Thi đua Tổ</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+  <div id="config-screen" class="screen">
+    <div class="config-card">
+      <h1>⚙️ Cấu hình Supabase</h1>
+      <p>Nhập thông tin dự án Supabase của bạn để bắt đầu.</p>
+      <p class="hint">Tạo dự án tại <a href="https://supabase.com" target="_blank">supabase.com</a>, sau đó chạy SQL tạo bảng (xem hướng dẫn bên dưới).</p>
+      <div class="form-group">
+        <label>Supabase URL</label>
+        <input type="text" id="supabase-url" placeholder="https://xxxx.supabase.co">
+      </div>
+      <div class="form-group">
+        <label>Supabase Anon Key</label>
+        <input type="text" id="supabase-key" placeholder="eyJhbGciOiJIUzI1NiIs...">
+      </div>
+      <div class="form-group">
+        <label>Tên tổ (ví dụ: Tổ 1 - Lớp 10A1)</label>
+        <input type="text" id="ten-to" placeholder="Tổ 1" value="Tổ 1">
+      </div>
+      <button class="btn btn-primary btn-block" onclick="saveConfig()">Lưu & Bắt đầu</button>
+      <details class="sql-help">
+        <summary>📋 SQL tạo bảng (chạy trong Supabase SQL Editor)</summary>
+        <pre id="sql-script"></pre>
+        <button class="btn btn-sm" onclick="copySQL()">Sao chép SQL</button>
+      </details>
+    </div>
+  </div>
+
+  <div id="app" class="screen hidden">
+    <header class="header">
+      <h1>🏆 QUẢN LÝ THI ĐUA TỔ</h1>
+      <p id="ten-to-display" class="ten-to"></p>
+    </header>
+
+    <nav class="nav-bar">
+      <button class="btn btn-nav active" data-view="main" onclick="showView('main')">📅 Tuần hiện tại</button>
+      <button class="btn btn-nav" data-view="history" onclick="showView('history')">📜 Lịch sử</button>
+      <button class="btn btn-nav" onclick="openModal('member-modal')">+ Thêm thành viên</button>
+      <button class="btn btn-nav" onclick="openModal('record-modal')">+ Thêm lỗi/điểm</button>
+      <button class="btn btn-nav btn-summary" onclick="openSummary()">📊 Tổng kết</button>
+    </nav>
+
+    <!-- MAIN VIEW -->
+    <section id="view-main" class="view">
+      <div class="week-header">
+        <div class="week-info">
+          <select id="week-select" onchange="changeWeek(this.value)"></select>
+          <span id="week-dates" class="week-dates"></span>
+        </div>
+        <button class="btn btn-outline" onclick="openModal('week-modal')">+ Tạo tuần mới</button>
+      </div>
+
+      <div class="table-wrapper">
+        <table id="main-table">
+          <thead>
+            <tr>
+              <th>STT</th>
+              <th>Họ và tên</th>
+              <th>Lỗi vi phạm / Lý do</th>
+              <th>Điểm cộng</th>
+              <th>Điểm trừ</th>
+              <th>Tổng điểm</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="main-tbody"></tbody>
+        </table>
+      </div>
+      <p class="empty-msg hidden" id="empty-main">Chưa có thành viên. Hãy thêm thành viên trước!</p>
+    </section>
+
+    <!-- HISTORY VIEW -->
+    <section id="view-history" class="view hidden">
+      <h2>📜 Lịch sử các tuần</h2>
+      <div class="table-wrapper">
+        <table id="history-table">
+          <thead>
+            <tr>
+              <th>Tuần</th>
+              <th>Thời gian</th>
+              <th>Trạng thái</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MEMBER DETAIL -->
+    <section id="view-detail" class="view hidden">
+      <button class="btn btn-outline btn-back" onclick="showView('main')">← Quay lại</button>
+      <h2 id="detail-name"></h2>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Ngày</th>
+              <th>Nội dung</th>
+              <th>Loại</th>
+              <th>Điểm</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="detail-tbody"></tbody>
+        </table>
+      </div>
+      <p class="total-line" id="detail-total">Tổng cộng: 0 điểm</p>
+    </section>
+  </div>
+
+  <!-- MODALS -->
+  <div id="member-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="member-modal-title">Thêm thành viên</h3>
+      <input type="hidden" id="member-id">
+      <div class="form-group">
+        <label>Họ và tên *</label>
+        <input type="text" id="member-name" placeholder="Nguyễn Văn A">
+      </div>
+      <div class="form-group">
+        <label>STT</label>
+        <input type="number" id="member-stt" placeholder="1" min="1">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeModal('member-modal')">Hủy</button>
+        <button class="btn btn-primary" onclick="saveMember()">Lưu</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="record-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Thêm lỗi / điểm</h3>
+      <div class="form-group">
+        <label>Thành viên *</label>
+        <select id="record-member"></select>
+      </div>
+      <div class="form-group">
+        <label>Ngày xảy ra *</label>
+        <input type="date" id="record-date">
+      </div>
+      <div class="form-group">
+        <label>Nội dung *</label>
+        <input type="text" id="record-content" placeholder="Không làm bài / Giúp đỡ bạn...">
+      </div>
+      <div class="form-group">
+        <label>Loại *</label>
+        <select id="record-type">
+          <option value="cong">Điểm cộng</option>
+          <option value="tru">Điểm trừ</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Số điểm *</label>
+        <input type="number" id="record-points" min="1" value="1">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeModal('record-modal')">Hủy</button>
+        <button class="btn btn-primary" onclick="saveRecord()">Lưu</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="week-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Tạo tuần mới</h3>
+      <div class="form-group">
+        <label>Tên tuần (ví dụ: Tuần 2)</label>
+        <input type="text" id="week-name" placeholder="Tuần 2">
+      </div>
+      <div class="form-group">
+        <label>Ngày bắt đầu *</label>
+        <input type="date" id="week-start">
+      </div>
+      <div class="form-group">
+        <label>Ngày kết thúc *</label>
+        <input type="date" id="week-end">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeModal('week-modal')">Hủy</button>
+        <button class="btn btn-primary" onclick="saveWeek()">Tạo tuần</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="summary-modal" class="modal hidden">
+    <div class="modal-content modal-lg">
+      <h3>📊 Tổng kết tuần</h3>
+      <p id="summary-week-info" class="summary-info"></p>
+      <div class="table-wrapper">
+        <table id="summary-table">
+          <thead>
+            <tr>
+              <th>STT</th>
+              <th>Họ tên</th>
+              <th>Điểm cộng</th>
+              <th>Điểm trừ</th>
+              <th>Tổng điểm</th>
+            </tr>
+          </thead>
+          <tbody id="summary-tbody"></tbody>
+        </table>
+      </div>
+      <div class="modal-actions" style="flex-wrap:wrap;gap:8px;">
+        <button class="btn btn-outline" onclick="closeModal('summary-modal')">Đóng</button>
+        <button class="btn btn-primary" onclick="exportExcel()">📥 Xuất Excel</button>
+        <button class="btn btn-primary" onclick="exportPDF()">📄 Xuất PDF</button>
+        <button class="btn btn-success" onclick="markWeekCompleted()">✅ Đánh dấu đã tổng kết</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
